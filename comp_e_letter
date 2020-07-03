@@ -1,0 +1,4 @@
+#!/bin/sh
+
+NWF=`echo $1 | sed 's/\..*md/\.pdf/g'`
+pandoc -t latex -f markdown --template=signed_e_letter.latex -o $NWF --pdf-engine=xelatex $1 

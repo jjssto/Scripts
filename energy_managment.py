@@ -8,14 +8,44 @@ The script module energy_managment.py suspends the computer, if the
 battery is nearly empty or if the user is idle for a certain time
 """
 import os
+import sys
 import subprocess as sp
 import time
 import re
-home = os.environ.get('HOME')
-dir = home + '/.local/bin/'
-os.chdir(dir)
-import check_battery
-CONFIG = home + '/.config/energy_managment.conf'
+
+PATH = "/sys/class/power_supply/BAT0/uevent"
+
+def energy_level():
+    ''' class to get charge of battery'''
+    with open(PATH, 'r') as f:
+        for line in f:
+            if ((m := re.match(r'POWER_SUPPLY_ENERGY_NOW=(.*)', line)) is
+                    not None):
+                energy_now = float(m.group(1))
+            elif ((m := re.match(r'POWER_SUPPLY_ENERGY_FULL=(.*)', line))
+                    is not None):
+                energy_full = float(m.group(1))
+    return(energy_now / energy_full)
+
+
+def energy_source():
+    """
+    Returns True if source is battery
+
+    Returns:
+    --------
+    bool
+        indicates if the source is the battery.
+    """
+    with open(PATH, 'r') as f:
+        for line in f:
+            if ( m := re.match(r'.*STATUS=(.*)', line)) is not None:
+                if re.search(r".*Discharging.*", m.group(1)) is not None:
+                    return(True)
+                else:
+                    return(False)
+        else:
+            return(False)
 
 
 def idle_time():
@@ -28,18 +58,20 @@ def idle_time():
     Returns:
         float: seconds since the last user action
     """
-
-
-    ret = sp.run(['xssstate','-i'], capture_output = True)
-    user_idle = float(ret.stdout)
-    return(user_idle / 1000)
+    try:
+        #ret = sp.run(['xssstate','-i'], capture_output = True)
+        ret = sp.run(['sudo', '-u', 'josef', 'xprintidle'], capture_output = True)
+        user_idle = float(ret.stdout)
+        return(user_idle / 1000)
+    except:
+        return(0)
 
 
 def suspend():
     """
     Suspends the computer
     """
-    sp.run(['i3exit','suspend-then-hibernate'])
+    sp.run(['systemctl','suspend-then-hibernate'])
 
 
 def brightness(level):
@@ -80,7 +112,8 @@ class Manager:
     manage(interval)
         power managment
     """
-    def __init__(self):
+    def __init__(self, config_file):
+        self.config = config_file
         self.__update()
 
     def __update(self):
@@ -99,7 +132,7 @@ class Manager:
         self.battery_threshold = float(self.__get_definition('BATTERY_THR'))
 
     def __get_definition(self, string):
-        with open(CONFIG, 'r') as f:
+        with open(self.config, 'r') as f:
             for line in f:
                 if (m := re.match((string + r' (.*)'), line)) is not None:
                     return(m.group(1))
@@ -119,11 +152,9 @@ class Manager:
         """
         while True:
             self.__update()
-            level = check_battery.energy_level()
-            print(level)
+            level = energy_level()
             idle = idle_time()
-            print(idle)
-            if check_battery.energy_source():
+            if energy_source():
                 # energy source is battery
                 if level < self.battery_threshold:
                     suspend()
@@ -140,6 +171,18 @@ class Manager:
             time.sleep(interval)
 
 
-if __name__ == "__main__":
-    manager = Manager()
-    manager.manage(60)
+def main():
+    if sys.argv[1] is not None:
+        config_file = sys.argv[1]
+    else:
+        sys.exit("Invalid argument")
+
+    if sys.argv[2] is not None:
+        interval = int(sys.argv[2])
+    else:
+        interval = 60
+
+    manager = Manager(config_file)
+    manager.manage(interval)
+if __name__ == '__main__':
+    main()
