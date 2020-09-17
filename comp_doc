@@ -1,0 +1,4 @@
+#!/bin/sh
+
+NWF=`echo $1 | sed 's/\..*md/\.pdf/g'`
+pandoc -t latex -f markdown -o $NWF $1
